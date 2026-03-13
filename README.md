@@ -8,6 +8,21 @@ A premium, high-efficiency production tracking system designed for printing oper
 - **Job Lookup:** Real-time search for managers to track project completion percentages.
 - **Premium UI:** Clean, professional aesthetic using glassmorphism and modern typography.
 
+## 🔗 Backend & Production Integration
+This application operates as the frontend interface for the company's live production database. It is fully integrated with a **FastAPI backend** and a **PostgreSQL database**.
+
+### Key Integrations:
+- **Live Data Fetching**: Retrieves real-time job card details, machine assignments (`machineWoList`), and operator IDs directly from production.
+- **Status Syncing**: Saves 7-step workflow progression (Initial → Delivered) instantly back to the live server.
+- **Enterprise Features**: Designed for factory floors with session persistence (localStorage) and optimized input fields for handheld Android scanners.
+
+### 🛡 Development Safety Mode
+To prevent accidental changes to the production database during testing or training, a global safety switch is built-in:
+```javascript
+window.PRINTECH_DEV_MODE = true; // Set to false for live production writes
+```
+When active, the app fetches real data but blocks any status update `POST` requests, displaying a simulated success screen instead.
+
 ## How to Run
 
 Follow these steps to get the application running on your computer.
