@@ -595,7 +595,7 @@ function OperatorPage({ state, setState }) {
                         formData.append("workorderStatus", status);
                         // Production API does not require token for this endpoint currently
 
-                        const res = await fetch("http://117.218.59.130/vasa_wo_api/work_order/change_workorder_status", {
+                        const res = await fetch("http://117.218.59.130/vasa_wo_api/work_order/work_status_change", {
                           method: "POST",
                           headers: { "Content-Type": "application/x-www-form-urlencoded" },
                           body: formData
