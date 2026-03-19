@@ -162,6 +162,7 @@ function OperatorPage({ state, setState }) {
 
   const [qrAuthDone, setQrAuthDone] = useState(false);
   const [qrJobDone, setQrJobDone] = useState(false);
+  const [externalScanValue, setExternalScanValue] = useState("");
   const employeeInputRef = useRef(null);
   const jobInputRef = useRef(null);
 
@@ -181,6 +182,36 @@ function OperatorPage({ state, setState }) {
   }, [step, authMode]);
 
   // Handle QR scan results
+  const applyExternalScan = (raw) => {
+    const data = String(raw || "").trim().toUpperCase();
+    if (!data) {
+      update({ scanError: "Scanner input is empty" });
+      return;
+    }
+
+    if (step === 1) {
+      if (data.startsWith("EMP")) {
+        update({ empId: data, scanError: "" });
+        setQrAuthDone(true);
+        setExternalScanValue("");
+        setTimeout(() => update({ step: 2 }), 250);
+      } else {
+        update({ scanError: "Employee scan must start with EMP" });
+      }
+      return;
+    }
+
+    if (step === 2) {
+      if (/^\d{5,12}$/.test(data)) {
+        update({ jobLookupNumber: data, jobCard: data, scanError: "" });
+        setQrJobDone(true);
+        setExternalScanValue("");
+      } else {
+        update({ scanError: "Job card scan must be numeric" });
+      }
+    }
+  };
+
   const handleQRScan = (result) => {
     if (!result) return;
 
@@ -195,8 +226,9 @@ function OperatorPage({ state, setState }) {
         setTimeout(() => update({ step: 2 }), 500);
       }
       // Parse job card QR code (format: 6-8 digit number)
-      else if (step === 1 && /^\d{5,8}$/.test(data)) {
+      else if (step === 2 && /^\d{5,12}$/.test(data)) {
         update({ jobLookupNumber: data, jobCard: data, scannerActive: false, scanError: "" });
+        setQrJobDone(true);
       }
       else {
         update({ scanError: "Invalid QR code for current step" });
@@ -282,6 +314,29 @@ function OperatorPage({ state, setState }) {
                   </div>
                 ) : (
                   <div style={{ border: `2px solid ${C.accent}`, borderRadius: 14, padding: "16px", background: C.white }}>
+                    {!scannerActive && (
+                      <div style={{ marginBottom: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: 0.7, fontFamily: "'DM Mono',monospace" }}>EXTERNAL SCANNER INPUT</label>
+                        <input
+                          value={externalScanValue}
+                          onChange={e => setExternalScanValue(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              applyExternalScan(externalScanValue);
+                            }
+                          }}
+                          placeholder="Scan employee QR (scanner types text here)"
+                          style={{ border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "10px 12px", fontSize: 13, fontFamily: "'DM Mono',monospace", color: C.text, background: C.white, outline: "none" }}
+                        />
+                        <button
+                          onClick={() => applyExternalScan(externalScanValue)}
+                          style={{ alignSelf: "flex-end", padding: "6px 12px", borderRadius: 7, border: `1px solid ${C.accent}`, background: C.accentLt, color: C.accent, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                        >
+                          Apply Scan
+                        </button>
+                      </div>
+                    )}
                     {!scannerActive ? (
                       <div style={{ textAlign: "center", padding: "16px" }}>
                         <div style={{ fontSize: 36, marginBottom: 8 }}>📷</div>
@@ -370,6 +425,29 @@ function OperatorPage({ state, setState }) {
                   </div>
                 ) : (
                   <div style={{ border: `2px solid ${C.accent}`, borderRadius: 14, padding: "16px", background: C.white }}>
+                    {!scannerActive && (
+                      <div style={{ marginBottom: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: 0.7, fontFamily: "'DM Mono',monospace" }}>EXTERNAL SCANNER INPUT</label>
+                        <input
+                          value={externalScanValue}
+                          onChange={e => setExternalScanValue(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              applyExternalScan(externalScanValue);
+                            }
+                          }}
+                          placeholder="Scan job card QR (scanner types text here)"
+                          style={{ border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "10px 12px", fontSize: 13, fontFamily: "'DM Mono',monospace", color: C.text, background: C.white, outline: "none" }}
+                        />
+                        <button
+                          onClick={() => applyExternalScan(externalScanValue)}
+                          style={{ alignSelf: "flex-end", padding: "6px 12px", borderRadius: 7, border: `1px solid ${C.accent}`, background: C.accentLt, color: C.accent, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                        >
+                          Apply Scan
+                        </button>
+                      </div>
+                    )}
                     {!scannerActive ? (
                       <div style={{ textAlign: "center", padding: "16px" }}>
                         <div style={{ fontSize: 36, marginBottom: 8 }}>📋</div>
