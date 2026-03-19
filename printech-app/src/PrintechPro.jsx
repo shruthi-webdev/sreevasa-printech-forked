@@ -39,13 +39,9 @@ const stageMap = {
 };
 
 const statusConfig = {
-  1: { label: "Initial", color: "#6b8070", bg: "#f0f4f1", icon: "•" },
-  2: { label: "Processing", color: C.inprog, bg: "#e8f2fc", icon: "↻" },
+  1: { label: "Pending", color: "#6b8070", bg: "#f0f4f1", icon: "•" },
+  2: { label: "Ongoing", color: C.inprog, bg: "#e8f2fc", icon: "↻" },
   3: { label: "Completed", color: C.completed, bg: "#dcfce7", icon: "✓" },
-  4: { label: "Packed", color: "#7c3aed", bg: "#f3eefe", icon: "📦" },
-  5: { label: "Billing", color: "#0e7474", bg: "#e6f6f6", icon: "💳" },
-  6: { label: "Delivery", color: "#c05c00", bg: "#fff0e6", icon: "🚚" },
-  7: { label: "Delivered", color: "#16803c", bg: "#dcfce7", icon: "🏁" },
 };
 
 const sampleJobs = [
@@ -617,8 +613,12 @@ function OperatorPage({ state, setState }) {
                           body: formData
                         });
 
-                        // We assume Success if no error thrown
-                        update({ step: 5, loading: false });
+                        const data = await res.json();
+                        if (data?.status === 1) {
+                          update({ step: 5, loading: false });
+                        } else {
+                          update({ error: data?.msg || "Failed to update status", loading: false });
+                        }
                       } catch (err) {
                         update({ error: "Failed to update status", loading: false });
                       }
@@ -728,19 +728,15 @@ function JobLookupPage({ empId }) {
   const sc = result ? statusConfig[result.workorder_status || result.workOrderSts || result.status] : null;
 
   const getProgress = (st) => {
-    const pMap = { 1: 10, 2: 40, 3: 80, 4: 90, 5: 95, 6: 98, 7: 100 };
+    const pMap = { 1: 10, 2: 55, 3: 100 };
     return pMap[st] || 0;
   };
 
   const Timeline = ({ currentSt }) => {
     const steps = [
-      { id: 1, label: "Initial" },
-      { id: 2, label: "Processing" },
+      { id: 1, label: "Pending" },
+      { id: 2, label: "Ongoing" },
       { id: 3, label: "Completed" },
-      { id: 4, label: "Packed" },
-      { id: 5, label: "Billing" },
-      { id: 6, label: "Delivery" },
-      { id: 7, label: "Delivered" }
     ];
     return (
       <div style={{ marginTop: 24, padding: "0 10px" }}>
@@ -879,7 +875,7 @@ function JobLookupPage({ empId }) {
 
 /* ── ROOT ──────────────────────────────────────────────────── */
 // Set this to true to prevent sending data to the live database
-window.PRINTECH_DEV_MODE = true;
+window.PRINTECH_DEV_MODE = false;
 
 export default function App() {
   const [active, setActive] = useState("operator");
