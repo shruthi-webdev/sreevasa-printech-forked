@@ -1,11 +1,12 @@
-# ▣ Sree Vasa Printech — Pro-Flow System
+# Sree Vasa Printech — Pro-Flow System
 
 A premium, high-efficiency production tracking system designed for printing operations. This application streamlines the workflow between operators and managers through real-time job card tracking and QR code integration.
 
 ## Key Features
-- **Operator Entry Workflow:** A seamless 5-step guided process for status updates.
-- **QR Code Scanning:** Integrated camera support for instant employee and job card verification.
-- **Job Lookup:** Real-time search for managers to track project completion percentages.
+- **Hands-Free Automation:** Global key-listener automatically detects hardware scanner input and routes to the correct page instantly based on barcode formats (Badge vs. Job Card).
+- **Sticky Focus Guarantee:** The system aggressively pins cursor focus to input fields, ensuring zero input data is lost during high-speed shop floor scanning.
+- **Offline Resilience:** Built-in smart fallback mechanism that loads local demo data if the production database goes offline, safely allowing uninterrupted testing.
+- **Operator Entry Workflow:** A seamless 5-step guided process for status updates with auto-advance functionality.
 - **Premium UI:** Clean, professional aesthetic using glassmorphism and modern typography.
 
 ## 🔗 Backend & Production Integration
@@ -63,10 +64,18 @@ npm run dev
 - The terminal will display a link like **`http://localhost:5173`**.
 - **Ctrl + Click** the link or manually type it into your browser to open the app!
 
+### 6. Building for Production & The `dist` Folder
+To generate the final, optimized code for deployment:
+```bash
+npm run build
+```
+This command creates a `dist` (distribution) folder. 
+**Note:** The `dist` folder is intentionally ignored by GitHub (via `.gitignore`) because it contains generated code. If you clone this repository on a new machine, you will not see the `dist` folder until you run the build command yourself.
+
 ---
+
 
 ## Tech Stack
 - **Frontend:** React 19 (Vite)
-- **Scanner:** @yudiel/react-qr-scanner
 - **Styling:** Vanilla CSS with Dynamic Inline Styles
 - **Fonts:** Lora, DM Sans, DM Mono (Google Fonts)
