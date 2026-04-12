@@ -279,18 +279,18 @@ function OperatorPage({ state, setState, onSync }) {
         setQrAuthDone(true);
         setTimeout(() => update({ step: 2 }), 300);
       }
-<<<<<<< HEAD
+<<<<<<<<< Temporary merge branch 1
       // Parse job card QR code (format: 6-8 digit number)
       else if (step === 2 && /^\d{5,12}$/.test(data)) {
         update({ jobLookupNumber: data, jobCard: data, scannerActive: false, scanError: "" });
         setQrJobDone(true);
-=======
+=========
       else if (step === 2 && JOB_REGEX.test(data)) {
         update({ jobLookupNumber: data, jobCard: data, scannerActive: false, scanError: "" });
         setQrJobDone(true);
         // Auto-fetch after QR scan
         setTimeout(() => handleJobLookup(data), 100);
->>>>>>> upstream/main
+>>>>>>>>> Temporary merge branch 2
       }
       else {
         update({ scanError: "Invalid code for current step" });
@@ -434,26 +434,18 @@ function OperatorPage({ state, setState, onSync }) {
             {step === 1 && (
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: C.text, fontFamily: "'Lora',serif", marginBottom: 4 }}>Employee Authentication</div>
-                <div style={{ fontSize: 12, color: C.muted, marginBottom: 24 }}>Scan your employee badge to begin</div>
+                <div style={{ fontSize: 12, color: C.muted, marginBottom: 24 }}>Verify your identity to begin</div>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: C.muted, letterSpacing: 0.8, fontFamily: "'DM Mono',monospace" }}>EMPLOYEE ID</label>
-                    <input id="operator-emp-input" ref={employeeInputRef} value={empId} onChange={e => update({ empId: e.target.value.toUpperCase() })} placeholder="Ready to scan..."
-                      onBlur={() => stickyFocus(employeeInputRef)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && empId.toUpperCase().startsWith("EMP") && empId.length >= 4) {
-                          localStorage.setItem("printech_emp_id", empId.toUpperCase());
-                          update({ step: 2 });
-                        }
-                      }}
-                      style={{ border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", fontSize: 16, fontFamily: "'DM Mono',monospace", color: C.text, background: C.white, outline: "none", transition: "border 0.2s", width: "100%" }}
-                      onFocus={e => e.target.style.border = `1.5px solid ${C.accent}`}
-                    />
-                  </div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                  {["id", "qr"].map(m => (
+                    <button key={m} onClick={() => { update({ authMode: m, scannerActive: false, scanError: "" }); setQrAuthDone(false); }}
+                      style={{ flex: 1, padding: "10px", borderRadius: 10, border: `1.5px solid ${authMode === m ? C.accent : C.border}`, background: authMode === m ? C.accentLt : C.white, color: authMode === m ? C.accent : C.muted, fontFamily: "'DM Sans',sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer", transition: "all 0.2s" }}>
+                      {m === "id" ? "◉  Employee ID" : "◎  Scan QR"}
+                    </button>
+                  ))}
                 </div>
 
-<<<<<<< HEAD
+<<<<<<<<< Temporary merge branch 1
                 {authMode === "id" ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
@@ -526,11 +518,27 @@ function OperatorPage({ state, setState, onSync }) {
                         </div>
                       </div>
                     )}
-                  </div>
-                )}
+                <div style={{ fontSize: 12, color: C.muted, marginBottom: 24 }}>Scan your employee badge to begin</div>
 
-=======
->>>>>>> upstream/main
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: C.muted, letterSpacing: 0.8, fontFamily: "'DM Mono',monospace" }}>EMPLOYEE ID</label>
+                    <input id="operator-emp-input" ref={employeeInputRef} value={empId} onChange={e => update({ empId: e.target.value.toUpperCase() })} placeholder="Ready to scan..."
+                      onBlur={() => stickyFocus(employeeInputRef)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && empId.toUpperCase().startsWith("EMP") && empId.length >= 4) {
+                          localStorage.setItem("printech_emp_id", empId.toUpperCase());
+                          update({ step: 2 });
+                        }
+                      }}
+                      style={{ border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", fontSize: 16, fontFamily: "'DM Mono',monospace", color: C.text, background: C.white, outline: "none", transition: "border 0.2s", width: "100%" }}
+                      onFocus={e => e.target.style.border = `1.5px solid ${C.accent}`}
+                    />
+                  </div>
+                </div>
+
+=========
+>>>>>>>>> Temporary merge branch 2
                 <button
                   onClick={() => {
                     const validId = empId.toUpperCase().startsWith("EMP") && empId.length >= 4;
@@ -556,25 +564,18 @@ function OperatorPage({ state, setState, onSync }) {
             {step === 2 && (
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: C.text, fontFamily: "'Lora',serif", marginBottom: 4 }}>Job Selection</div>
-                <div style={{ fontSize: 12, color: C.muted, marginBottom: 24 }}>Scan your Job Card now</div>
+                <div style={{ fontSize: 12, color: C.muted, marginBottom: 24 }}>Enter or scan your Job Card ID</div>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: C.muted, letterSpacing: 0.8, fontFamily: "'DM Mono',monospace" }}>JOB CARD NUMBER</label>
-                    <input id="operator-job-input" ref={jobInputRef} value={jobLookupNumber} onChange={e => update({ jobLookupNumber: e.target.value })} placeholder="Ready to scan..."
-                      onBlur={() => stickyFocus(jobInputRef)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && jobLookupNumber.length === 6) {
-                          handleJobLookup();
-                        }
-                      }}
-                      style={{ border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", fontSize: 16, fontFamily: "'DM Mono',monospace", color: C.text, background: C.white, outline: "none", transition: "border 0.2s", width: "100%" }}
-                      onFocus={e => e.target.style.border = `1.5px solid ${C.accent}`}
-                    />
-                  </div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                  {["id", "qr"].map(m => (
+                    <button key={m} onClick={() => { update({ authMode: m, scannerActive: false, scanError: "" }); setQrJobDone(false); }}
+                      style={{ flex: 1, padding: "10px", borderRadius: 10, border: `1.5px solid ${authMode === m ? C.accent : C.border}`, background: authMode === m ? C.accentLt : C.white, color: authMode === m ? C.accent : C.muted, fontFamily: "'DM Sans',sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer", transition: "all 0.2s" }}>
+                      {m === "id" ? "◉  Job ID" : "◎  Scan QR"}
+                    </button>
+                  ))}
                 </div>
 
-<<<<<<< HEAD
+<<<<<<<<< Temporary merge branch 1
                 {authMode === "id" ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
@@ -655,11 +656,26 @@ function OperatorPage({ state, setState, onSync }) {
                         </div>
                       </div>
                     )}
-                  </div>
-                )}
+                <div style={{ fontSize: 12, color: C.muted, marginBottom: 24 }}>Scan your Job Card now</div>
 
-=======
->>>>>>> upstream/main
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: C.muted, letterSpacing: 0.8, fontFamily: "'DM Mono',monospace" }}>JOB CARD NUMBER</label>
+                    <input id="operator-job-input" ref={jobInputRef} value={jobLookupNumber} onChange={e => update({ jobLookupNumber: e.target.value })} placeholder="Ready to scan..."
+                      onBlur={() => stickyFocus(jobInputRef)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && jobLookupNumber.length === 6) {
+                          handleJobLookup();
+                        }
+                      }}
+                      style={{ border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", fontSize: 16, fontFamily: "'DM Mono',monospace", color: C.text, background: C.white, outline: "none", transition: "border 0.2s", width: "100%" }}
+                      onFocus={e => e.target.style.border = `1.5px solid ${C.accent}`}
+                    />
+                  </div>
+                </div>
+
+=========
+>>>>>>>>> Temporary merge branch 2
                 <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
                   <button onClick={() => update({ step: 1 })} style={{ padding: "12px 20px", borderRadius: 10, border: `1.5px solid ${C.border}`, background: C.white, color: C.muted, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>← Back</button>
                   <button
@@ -835,11 +851,11 @@ function OperatorPage({ state, setState, onSync }) {
                         } else {
                           rawText = await res.text();
                           try {
-<<<<<<< HEAD
+<<<<<<<<< Temporary merge branch 1
                             data = JSON.parse(rawText);
                           } catch {
                             data = null;
-=======
+=========
                             const text = await res.text();
                             console.log("Status update response:", text);
                             // Even if we fail to parse JSON, if it's 200 OK, we count it as success
@@ -848,11 +864,11 @@ function OperatorPage({ state, setState, onSync }) {
                           } catch (e) {
                             update({ step: 5, loading: false });
                             onSync(true);
->>>>>>> upstream/main
+>>>>>>>>> Temporary merge branch 2
                           }
                         }
 
-<<<<<<< HEAD
+<<<<<<<<< Temporary merge branch 1
                         if (res.ok && data?.status === 1) {
                           update({ step: 5, loading: false });
                         } else {
@@ -870,7 +886,7 @@ function OperatorPage({ state, setState, onSync }) {
                         }
                       } catch (err) {
                         update({ error: err?.message || "Failed to update status", loading: false });
-=======
+=========
                         const errorText = await res.text();
                         console.error("Status update error response:", errorText);
                         update({ error: `Server error (${res.status}). Check console.`, loading: false });
@@ -880,7 +896,7 @@ function OperatorPage({ state, setState, onSync }) {
                         console.error("Status update execution error:", err);
                         update({ error: "Connection error: " + err.message, loading: false });
                         onSync(false);
->>>>>>> upstream/main
+>>>>>>>>> Temporary merge branch 2
                       }
                     }}
                     style={{ flex: 1, padding: "13px", borderRadius: 11, border: "none", background: C.accent, color: C.white, fontWeight: 700, fontSize: 14, cursor: "pointer", opacity: (loading || !status) ? 0.4 : 1 }}>
