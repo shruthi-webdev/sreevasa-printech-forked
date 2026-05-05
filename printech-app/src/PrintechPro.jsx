@@ -173,7 +173,7 @@ function OperatorPage({ state, setState, onSync }) {
 
   const now = () => new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-  const [cdAuthDone, setQrAuthDone] = useState(false);
+  const [qrAuthDone, setQrAuthDone] = useState(false);
   const [qrJobDone, setQrJobDone] = useState(false);
   const [externalScanValue, setExternalScanValue] = useState("");
   const employeeInputRef = useRef(null);
@@ -237,33 +237,46 @@ function OperatorPage({ state, setState, onSync }) {
   // Common regex for job cards: exactly 6 digits
   const JOB_REGEX = /^\d{6}$/i;
 
+  const extractEmpId = (raw) => {
+    const text = String(raw || "").trim().toUpperCase();
+    const match = text.match(/\bEMP\d{4,}\b/);
+    return match ? match[0] : "";
+  };
+
+  const extractJobCard = (raw) => {
+    const text = String(raw || "").trim();
+    const match = text.match(/\b\d{6}\b/);
+    return match ? match[0] : "";
+  };
+
   // Handle QR scan results
   const applyExternalScan = (raw) => {
-    const data = String(raw || "").trim().toUpperCase();
-    if (!data) {
+    if (!raw) {
       update({ scanError: "Scanner input is empty" });
       return;
     }
 
     if (step === 1) {
-      if (data.startsWith("EMP")) {
-        update({ empId: data, scanError: "" });
+      const emp = extractEmpId(raw);
+      if (emp) {
+        update({ empId: emp, scanError: "" });
         setQrAuthDone(true);
         setExternalScanValue("");
         setTimeout(() => update({ step: 2 }), 250);
       } else {
-        update({ scanError: "Employee scan must start with EMP" });
+        update({ scanError: "Employee QR must be like EMP0033" });
       }
       return;
     }
 
     if (step === 2) {
-      if (/^\d{5,12}$/.test(data)) {
-        update({ jobLookupNumber: data, jobCard: data, scanError: "" });
+      const job = extractJobCard(raw);
+      if (job) {
+        update({ jobLookupNumber: job, jobCard: job, scanError: "" });
         setQrJobDone(true);
         setExternalScanValue("");
       } else {
-        update({ scanError: "Job card scan must be numeric" });
+        update({ scanError: "Job card QR must be exactly 6 digits" });
       }
     }
   };
@@ -272,28 +285,37 @@ function OperatorPage({ state, setState, onSync }) {
     console.log("QR Code Scanned:", decodedText); // This will show the raw QR data
     if (!decodedText) return;
     try {
-        const data = decodedText;
-        if (step === 1 && data.toUpperCase().startsWith('EMP')) {
-            const id = data.toUpperCase();
-            update({ empId: id, scannerActive: false, scanError: "" });
-            localStorage.setItem("printech_emp_id", id);
-            setQrAuthDone(true);
-            setTimeout(() => update({ step: 2 }), 300);
+      if (step === 1) {
+        const id = extractEmpId(decodedText);
+        if (id) {
+          update({ empId: id, scannerActive: false, scanError: "" });
+          localStorage.setItem("printech_emp_id", id);
+          setQrAuthDone(true);
+          setTimeout(() => update({ step: 2 }), 300);
+        } else {
+          update({ scanError: "Employee QR must be like EMP0033" });
         }
-        // Parse job card QR code
-        else if (step === 2 && JOB_REGEX.test(data)) {
-            update({ jobLookupNumber: data, jobCard: data, scannerActive: false, scanError: "" });
-            setQrJobDone(true);
-            // Auto-fetch after QR scan
-            setTimeout(() => handleJobLookup(data), 100);
+        return;
+      }
+
+      if (step === 2) {
+        const jobCode = extractJobCard(decodedText);
+        if (JOB_REGEX.test(jobCode)) {
+          update({ jobLookupNumber: jobCode, jobCard: jobCode, scannerActive: false, scanError: "" });
+          setQrJobDone(true);
+          // Auto-fetch after QR scan
+          setTimeout(() => handleJobLookup(jobCode), 100);
+        } else {
+          update({ scanError: "Job card QR must be exactly 6 digits" });
         }
-        else {
-            update({ scanError: "Invalid code for current step" });
-        }
+        return;
+      }
+
+      update({ scanError: "Invalid code for current step" });
     } catch (error) {
-        update({ scanError: "Failed to read QR code" });
+      update({ scanError: "Failed to read QR code" });
     }
-};
+  };
 
   const handleJobLookup = async (overrideNumber) => {
     const jcn = overrideNumber || (authMode === "id" ? jobLookupNumber : jobCard);
