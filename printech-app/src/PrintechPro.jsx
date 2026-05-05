@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Scanner } from "@yudiel/react-qr-scanner";
+import QrScanner from './QrScanner';
 
 /* ── PALETTE ────────────────────────────────────────────────── */
 const C = {
@@ -268,31 +268,32 @@ function OperatorPage({ state, setState, onSync }) {
     }
   };
 
-  const handleQRScan = (result) => {
-    if (!result) return;
+  const handleQRScan = (decodedText, decodedResult) => {
+    console.log("QR Code Scanned:", decodedText); // This will show the raw QR data
+    if (!decodedText) return;
     try {
-      const data = result[0].rawValue;
-      if (step === 1 && data.toUpperCase().startsWith('EMP')) {
-        const id = data.toUpperCase();
-        update({ empId: id, scannerActive: false, scanError: "" });
-        localStorage.setItem("printech_emp_id", id);
-        setQrAuthDone(true);
-        setTimeout(() => update({ step: 2 }), 300);
-      }
-      // Parse job card QR code
-      else if (step === 2 && JOB_REGEX.test(data)) {
-        update({ jobLookupNumber: data, jobCard: data, scannerActive: false, scanError: "" });
-        setQrJobDone(true);
-        // Auto-fetch after QR scan
-        setTimeout(() => handleJobLookup(data), 100);
-      }
-      else {
-        update({ scanError: "Invalid code for current step" });
-      }
+        const data = decodedText;
+        if (step === 1 && data.toUpperCase().startsWith('EMP')) {
+            const id = data.toUpperCase();
+            update({ empId: id, scannerActive: false, scanError: "" });
+            localStorage.setItem("printech_emp_id", id);
+            setQrAuthDone(true);
+            setTimeout(() => update({ step: 2 }), 300);
+        }
+        // Parse job card QR code
+        else if (step === 2 && JOB_REGEX.test(data)) {
+            update({ jobLookupNumber: data, jobCard: data, scannerActive: false, scanError: "" });
+            setQrJobDone(true);
+            // Auto-fetch after QR scan
+            setTimeout(() => handleJobLookup(data), 100);
+        }
+        else {
+            update({ scanError: "Invalid code for current step" });
+        }
     } catch (error) {
-      update({ scanError: "Failed to read QR code" });
+        update({ scanError: "Failed to read QR code" });
     }
-  };
+};
 
   const handleJobLookup = async (overrideNumber) => {
     const jcn = overrideNumber || (authMode === "id" ? jobLookupNumber : jobCard);
@@ -432,7 +433,7 @@ function OperatorPage({ state, setState, onSync }) {
 
                 <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
                   {["id", "qr"].map(m => (
-                    <button key={m} onClick={() => { update({ authMode: m, scannerActive: false, scanError: "" }); setQrAuthDone(false); }}
+                    <button key={m} onClick={() => { update({ authMode: m, scannerActive: m === 'qr', scanError: "" }); setQrAuthDone(false); }}
                       style={{ flex: 1, padding: "10px", borderRadius: 10, border: `1.5px solid ${authMode === m ? C.accent : C.border}`, background: authMode === m ? C.accentLt : C.white, color: authMode === m ? C.accent : C.muted, fontFamily: "'DM Sans',sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer", transition: "all 0.2s" }}>
                       {m === "id" ? "◉  Employee ID" : "◎  Scan QR"}
                     </button>
@@ -460,46 +461,8 @@ function OperatorPage({ state, setState, onSync }) {
                     </div>
                   </div>
                 ) : (
-                  <div style={{ border: `2px solid ${C.accent}`, borderRadius: 14, padding: "16px", background: C.white }}>
-                    {!scannerActive && (
-                      <div style={{ marginBottom: 14, display: "flex", flexDirection: "column", gap: 6 }}>
-                        <label style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: 0.7, fontFamily: "'DM Mono',monospace" }}>EXTERNAL SCANNER INPUT</label>
-                        <input
-                          value={externalScanValue}
-                          onChange={e => setExternalScanValue(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              applyExternalScan(externalScanValue);
-                            }
-                          }}
-                          placeholder="Scan employee QR (scanner types text here)"
-                          style={{ border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "10px 12px", fontSize: 13, fontFamily: "'DM Mono',monospace", color: C.text, background: C.white, outline: "none" }}
-                        />
-                        <button
-                          onClick={() => applyExternalScan(externalScanValue)}
-                          style={{ alignSelf: "flex-end", padding: "6px 12px", borderRadius: 7, border: `1px solid ${C.accent}`, background: C.accentLt, color: C.accent, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
-                        >
-                          Apply Scan
-                        </button>
-                      </div>
-                    )}
-                    {!scannerActive ? (
-                      <div style={{ textAlign: "center", padding: "16px" }}>
-                        <div style={{ fontSize: 36, marginBottom: 8 }}>📷</div>
-                        <div style={{ color: C.accent, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", fontSize: 14 }}>Employee QR Scanner</div>
-                        <div style={{ color: C.muted, fontSize: 12, marginTop: 4 }}>Scan your employee badge QR code</div>
-                        {scanError && (
-                          <div style={{ color: "#dc2626", fontSize: 11, marginTop: 8, padding: "6px 12px", background: "#fef2f2", borderRadius: 6 }}>
-                            {scanError}
-                          </div>
-                        )}
-                        <button onClick={startScanner}
-                          style={{ marginTop: 16, padding: "10px 24px", borderRadius: 8, border: `1.5px solid ${C.accent}`, background: C.accent, color: C.white, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
-                          Start Scanner
-                        </button>
-                      </div>
-                    ) : (
+                  <div>
+                    {scannerActive ? (
                       <div>
                         <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div style={{ fontSize: 14, fontWeight: 600, color: C.accent }}>Scanning Employee Badge...</div>
@@ -508,16 +471,12 @@ function OperatorPage({ state, setState, onSync }) {
                             Cancel
                           </button>
                         </div>
-                        <div style={{ borderRadius: 10, overflow: "hidden", background: "#000", height: 320, position: 'relative' }}>
-                          <Scanner
-                            onScan={handleQRScan}
-                            onError={handleScanError}
-                            styles={{
-                              container: { width: '100%', height: '100%' },
-                              video: { objectFit: 'cover', width: '100%', height: '100%' }
-                            }}
-                          />
-                        </div>
+                        <QrScanner onScan={handleQRScan} onError={handleScanError} />
+                      </div>
+                    ) : null}
+                    {scanError && (
+                      <div style={{ color: "#dc2626", fontSize: 12, marginTop: 12, textAlign: "center", background: "#fef2f2", padding: "8px", borderRadius: 8 }}>
+                        {scanError}
                       </div>
                     )}
                   </div>
@@ -551,7 +510,7 @@ function OperatorPage({ state, setState, onSync }) {
 
                 <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
                   {["id", "qr"].map(m => (
-                    <button key={m} onClick={() => { update({ authMode: m, scannerActive: false, scanError: "" }); setQrJobDone(false); }}
+                    <button key={m} onClick={() => { update({ authMode: m, scannerActive: m === 'qr', scanError: "" }); setQrJobDone(false); }}
                       style={{ flex: 1, padding: "10px", borderRadius: 10, border: `1.5px solid ${authMode === m ? C.accent : C.border}`, background: authMode === m ? C.accentLt : C.white, color: authMode === m ? C.accent : C.muted, fontFamily: "'DM Sans',sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer", transition: "all 0.2s" }}>
                       {m === "id" ? "◉  Job ID" : "◎  Scan QR"}
                     </button>
@@ -578,46 +537,8 @@ function OperatorPage({ state, setState, onSync }) {
                     </div>
                   </div>
                 ) : (
-                  <div style={{ border: `2px solid ${C.accent}`, borderRadius: 14, padding: "16px", background: C.white }}>
-                    {!scannerActive && (
-                      <div style={{ marginBottom: 14, display: "flex", flexDirection: "column", gap: 6 }}>
-                        <label style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: 0.7, fontFamily: "'DM Mono',monospace" }}>EXTERNAL SCANNER INPUT</label>
-                        <input
-                          value={externalScanValue}
-                          onChange={e => setExternalScanValue(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              applyExternalScan(externalScanValue);
-                            }
-                          }}
-                          placeholder="Scan job card QR (scanner types text here)"
-                          style={{ border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "10px 12px", fontSize: 13, fontFamily: "'DM Mono',monospace", color: C.text, background: C.white, outline: "none" }}
-                        />
-                        <button
-                          onClick={() => applyExternalScan(externalScanValue)}
-                          style={{ alignSelf: "flex-end", padding: "6px 12px", borderRadius: 7, border: `1px solid ${C.accent}`, background: C.accentLt, color: C.accent, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
-                        >
-                          Apply Scan
-                        </button>
-                      </div>
-                    )}
-                    {!scannerActive ? (
-                      <div style={{ textAlign: "center", padding: "16px" }}>
-                        <div style={{ fontSize: 36, marginBottom: 8 }}>📋</div>
-                        <div style={{ color: C.accent, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", fontSize: 14 }}>Job Card Scanner</div>
-                        <div style={{ color: C.muted, fontSize: 12, marginTop: 4 }}>Scan your job card QR code</div>
-                        {scanError && (
-                          <div style={{ color: "#dc2626", fontSize: 11, marginTop: 8, padding: "6px 12px", background: "#fef2f2", borderRadius: 6 }}>
-                            {scanError}
-                          </div>
-                        )}
-                        <button onClick={startScanner}
-                          style={{ marginTop: 16, padding: "10px 24px", borderRadius: 8, border: `1.5px solid ${C.accent}`, background: C.accent, color: C.white, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
-                          Start Scanner
-                        </button>
-                      </div>
-                    ) : (
+                  <div>
+                    {scannerActive ? (
                       <div>
                         <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div style={{ fontSize: 14, fontWeight: 600, color: C.accent }}>Scanning Job Card...</div>
@@ -626,24 +547,12 @@ function OperatorPage({ state, setState, onSync }) {
                             Cancel
                           </button>
                         </div>
-                        <div style={{ borderRadius: 10, overflow: "hidden", background: "#000", height: 320, position: 'relative' }}>
-                          <Scanner
-                            onScan={(res) => {
-                              if (res?.[0]) {
-                                const data = res[0].rawValue;
-                                if (/^\d{5,8}$/.test(data)) {
-                                  update({ jobLookupNumber: data, jobCard: data, scannerActive: false });
-                                  setQrJobDone(true);
-                                }
-                              }
-                            }}
-                            onError={handleScanError}
-                            styles={{
-                              container: { width: '100%', height: '100%' },
-                              video: { objectFit: 'cover', width: '100%', height: '100%' }
-                            }}
-                          />
-                        </div>
+                        <QrScanner onScan={handleQRScan} onError={handleScanError} />
+                      </div>
+                    ) : null}
+                    {scanError && (
+                      <div style={{ color: "#dc2626", fontSize: 12, marginTop: 12, textAlign: "center", background: "#fef2f2", padding: "8px", borderRadius: 8 }}>
+                        {scanError}
                       </div>
                     )}
                   </div>
