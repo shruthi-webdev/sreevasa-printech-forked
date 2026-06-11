@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import QrScanner from './QrScanner';
+import sha1 from 'crypto-js/sha1';
 
 /* ── PALETTE ────────────────────────────────────────────────── */
 const C = {
@@ -323,11 +324,16 @@ function OperatorPage({ state, setState, onSync }) {
 
     update({ loading: true, error: "" });
     try {
-      const formData = new URLSearchParams();
-      formData.append("empCode", empId || localStorage.getItem("printech_emp_id") || "EMP0033");
-      formData.append("jobCardNo", jcn);
+      const saltkey = "M4KRJDjfgjd6734@Tk!d";
+      const currentEmpId = empId || localStorage.getItem("printech_emp_id") || "EMP0033";
+      const authcode = sha1(saltkey + currentEmpId).toString();
 
-      const res = await fetch("http://117.218.59.130/vasa_wo_api/work_order/viewAssignedJob", {
+      const formData = new URLSearchParams();
+      formData.append("empCode", currentEmpId);
+      formData.append("jobCardNo", jcn);
+      formData.append("authcode", authcode);
+
+      const res = await fetch("http://117.218.59.130:8080/vasa_wo_api/work_order/viewAssignedJob", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: formData
@@ -711,7 +717,7 @@ function OperatorPage({ state, setState, onSync }) {
                         console.log("DEV MODE: Skipping production API call. Data that would have been sent:", {
                           machine_workorder_id: resolveMachineWorkOrderId(),
                           work_status: Number(status),
-                          token: "20A5g2n3cHGX2P7y35L8bDV7OHhyXM"
+                          token: apiToken,
                         });
                         return;
                       }
@@ -727,18 +733,10 @@ function OperatorPage({ state, setState, onSync }) {
                           return;
                         }
 
-                        const token = "20A5g2n3cHGX2P7y35L8bDV7OHhyXM";
-
                         const formData = new URLSearchParams();
                         formData.append("machine_workorder_id", machineWorkOrderIdStr);
                         formData.append("work_status", statusStr);
-                        // Backward-compatible keys used by some backend variants.
-                        formData.append("workorder_status", statusStr);
-                        formData.append("work_status_id", statusStr);
-                        formData.append("status", statusStr);
-                        formData.append("empCode", String(empId || "").trim());
-                        formData.append("jobCardNo", String(jobCard || jobLookupNumber || "").trim());
-                        formData.append("token", token);
+                        formData.append("token", apiToken);
 
                         const res = await fetch("http://117.218.59.130/vasa_wo_api/work_order/work_status_change", {
                           method: "POST",
@@ -883,11 +881,16 @@ function JobLookupPage({ empId, apiToken, onSync, triggerLookup }) {
     setError("");
     setSearched(true);
     try {
+      const saltkey = "M4KRJDjfgjd6734@Tk!d";
+      const currentEmpId = empId || localStorage.getItem("printech_emp_id") || "EMP0033";
+      const authcode = sha1(saltkey + currentEmpId).toString();
+
       const formData = new URLSearchParams();
       // Default to EMP0033 for manager lookup if no ID present
-      formData.append("empCode", empId || localStorage.getItem("printech_emp_id") || "EMP0033");
+      formData.append("empCode", currentEmpId);
       formData.append("token", apiToken);
       formData.append("jobCardNo", q);
+      formData.append("authcode", authcode);
 
       const res = await fetch("http://117.218.59.130/vasa_wo_api/work_order/viewAssignedJob", {
         method: "POST",
@@ -1182,8 +1185,8 @@ export default function App() {
           return;
         }
 
-        // 2. ROUTE JOB CARDS (6 Digits)
-        if (/^\d{6}$/.test(val)) {
+        // 2. ROUTE JOB CARDS (8 Digits)
+        if (/^\d{8}$/.test(val)) {
           // If we ARE an operator and already logged in, stay in Operator Entry
           if (active === "operator" && state.empId) {
             setState(prev => ({ ...prev, jobLookupNumber: val }));
