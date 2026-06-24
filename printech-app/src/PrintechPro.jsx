@@ -45,6 +45,15 @@ const statusConfig = {
   3: { label: "Completed", color: C.completed, bg: "#dcfce7", icon: "✓" },
 };
 
+const SALT_KEY = "M4KRJDjfgjd6734@Tk!d";
+const API_BASE_PATH = (import.meta.env.VITE_API_BASE_PATH || "/vasa_wo_api").replace(/\/$/, "");
+const VIEW_USER_URL = `${API_BASE_PATH}/user/viewUser`;
+const VIEW_ASSIGNED_JOB_URL = `${API_BASE_PATH}/work_order/viewAssignedJob`;
+const WORK_STATUS_CHANGE_URL = `${API_BASE_PATH}/work_order/work_status_change`;
+const JOB_CARD_REGEX = /^\d{8}$/;
+const JOB_CARD_EXTRACT_REGEX = /\b\d{8}\b/;
+const EMPLOYEE_ID_REGEX = /^EMP\d{4,}$/i;
+
 const sampleJobs = [
   { id: "260099", client: "Golden Offset", item: "ISI Hang Tag", stage: "Press", machine: "Screen Printer", operator: "Mahendran K", operatorId: "EMP0033", status: "In Progress", progress: 65, time: "10:42 AM" },
   { id: "260098", client: "Bose Exports", item: "Obabi Hanger Card", stage: "Pre-Press", machine: "Embroidery", operator: "Sugumar", operatorId: "EMP0032", status: "Started", progress: 22, time: "09:15 AM" },
@@ -168,7 +177,7 @@ function TopBar({ title, sub }) {
 
 /* ── OPERATOR PAGE ──────────────────────────────────────────── */
 function OperatorPage({ state, setState, onSync }) {
-  const { step, authMode, empId, jobLookupNumber, jobCard, machine, status, scannerActive, scanError, loading, error, currentJobData, apiToken } = state;
+  const { step, authMode, empId, jobLookupNumber, jobCard, machine, status, scannerActive, scanError, loading, error, currentJobData, selectedMachineObj, apiToken, statusMessage } = state;
 
   const update = (patch) => setState(prev => ({ ...prev, ...patch }));
 
@@ -194,13 +203,36 @@ function OperatorPage({ state, setState, onSync }) {
     obj?.id
   );
 
+  const readMachineStatusId = (obj) => Number(
+    obj?.current_status_id ||
+    obj?.currentStatusId ||
+    obj?.current_statusId ||
+    0
+  );
+
+  const describeMachineWork = (machineWork) => {
+    const processNames = Array.isArray(machineWork?.processData)
+      ? machineWork.processData.map((p) => p.processName).filter(Boolean)
+      : [];
+    const descriptions = Array.isArray(machineWork?.processData)
+      ? machineWork.processData
+        .flatMap((p) => p.parameterList || [])
+        .filter((p) => String(p.parameter_name || "").toLowerCase() === "description" && p.parameter_value)
+        .map((p) => p.parameter_value)
+      : [];
+    return [...new Set([...processNames, ...descriptions])].join(" / ");
+  };
+
   const resolveMachineWorkOrderId = () => {
     const list = currentJobData?.machineWoList;
     const normalize = (v) => String(v || "").trim().toLowerCase();
 
+    const selectedId = readMachineWorkOrderId(selectedMachineObj);
+    if (selectedId) return selectedId;
+
     if (Array.isArray(list) && list.length > 0) {
       const selected = list.find((m) =>
-        normalize(m.machine_name || m.machineName || m.machine) === normalize(machine)
+        normalize(m.displayName || m.machine_name || m.machineName || m.machine) === normalize(machine)
       );
       return readMachineWorkOrderId(selected || list[0]);
     }
@@ -212,8 +244,7 @@ function OperatorPage({ state, setState, onSync }) {
   useEffect(() => {
     const savedEmp = localStorage.getItem("printech_emp_id");
     if (savedEmp) {
-      // If we have a saved ID, we can skip to step 2 directly
-      update({ empId: savedEmp, step: 2 });
+      update({ empId: savedEmp });
     }
   }, []);
 
@@ -235,9 +266,6 @@ function OperatorPage({ state, setState, onSync }) {
     }, 150);
   };
 
-  // Common regex for job cards: exactly 6 digits
-  const JOB_REGEX = /^\d{6}$/i;
-
   const extractEmpId = (raw) => {
     const text = String(raw || "").trim().toUpperCase();
     const match = text.match(/\bEMP\d{4,}\b/);
@@ -246,8 +274,69 @@ function OperatorPage({ state, setState, onSync }) {
 
   const extractJobCard = (raw) => {
     const text = String(raw || "").trim();
-    const match = text.match(/\b\d{6}\b/);
+    const match = text.match(JOB_CARD_EXTRACT_REGEX);
     return match ? match[0] : "";
+  };
+
+  const verifyEmployee = async (candidateEmpId = empId) => {
+    const code = String(candidateEmpId || "").trim().toUpperCase();
+    if (!EMPLOYEE_ID_REGEX.test(code)) {
+      update({ scanError: "Employee code must be like EMP0033" });
+      return false;
+    }
+
+    update({ loading: true, error: "", scanError: "" });
+    try {
+      const authcode = sha1(SALT_KEY + code).toString();
+      const formData = new FormData();
+      formData.append("empCode", code);
+      formData.append("authcode", authcode);
+
+      console.log("viewUser payload", { empCode: code, authcode });
+
+      const res = await fetch(VIEW_USER_URL, {
+        method: "POST",
+        body: formData
+      });
+
+      const rawText = await res.text();
+      let data = null;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        data = null;
+      }
+      console.log("viewUser response", data || rawText);
+
+      if (res.ok && (Number(data?.status) === 1 || data?.data || data?.empCode || data?.employee_code)) {
+        const token = data?.token || data?.data?.token || "";
+        localStorage.setItem("printech_emp_id", code);
+        update({
+          empId: code,
+          step: 2,
+          loading: false,
+          scannerActive: false,
+          scanError: "",
+          ...(token ? { apiToken: token } : {})
+        });
+        onSync(true);
+        return true;
+      }
+
+      const backendMessage =
+        data?.msg ||
+        data?.message ||
+        (typeof rawText === "string" && rawText.trim().slice(0, 220)) ||
+        `Employee verification failed (${res.status})`;
+      update({ error: backendMessage, loading: false });
+      onSync(true);
+      return false;
+    } catch (err) {
+      console.error("viewUser execution error:", err);
+      update({ error: "Connection error: " + err.message, loading: false });
+      onSync(false);
+      return false;
+    }
   };
 
   // Handle QR scan results
@@ -263,7 +352,7 @@ function OperatorPage({ state, setState, onSync }) {
         update({ empId: emp, scanError: "" });
         setQrAuthDone(true);
         setExternalScanValue("");
-        setTimeout(() => update({ step: 2 }), 250);
+        verifyEmployee(emp);
       } else {
         update({ scanError: "Employee QR must be like EMP0033" });
       }
@@ -277,7 +366,7 @@ function OperatorPage({ state, setState, onSync }) {
         setQrJobDone(true);
         setExternalScanValue("");
       } else {
-        update({ scanError: "Job card QR must be exactly 6 digits" });
+        update({ scanError: "Job card QR must be exactly 8 digits" });
       }
     }
   };
@@ -290,9 +379,8 @@ function OperatorPage({ state, setState, onSync }) {
         const id = extractEmpId(decodedText);
         if (id) {
           update({ empId: id, scannerActive: false, scanError: "" });
-          localStorage.setItem("printech_emp_id", id);
           setQrAuthDone(true);
-          setTimeout(() => update({ step: 2 }), 300);
+          verifyEmployee(id);
         } else {
           update({ scanError: "Employee QR must be like EMP0033" });
         }
@@ -301,13 +389,13 @@ function OperatorPage({ state, setState, onSync }) {
 
       if (step === 2) {
         const jobCode = extractJobCard(decodedText);
-        if (JOB_REGEX.test(jobCode)) {
+        if (JOB_CARD_REGEX.test(jobCode)) {
           update({ jobLookupNumber: jobCode, jobCard: jobCode, scannerActive: false, scanError: "" });
           setQrJobDone(true);
           // Auto-fetch after QR scan
           setTimeout(() => handleJobLookup(jobCode), 100);
         } else {
-          update({ scanError: "Job card QR must be exactly 6 digits" });
+          update({ scanError: "Job card QR must be exactly 8 digits" });
         }
         return;
       }
@@ -320,51 +408,48 @@ function OperatorPage({ state, setState, onSync }) {
 
   const handleJobLookup = async (overrideNumber) => {
     const jcn = overrideNumber || (authMode === "id" ? jobLookupNumber : jobCard);
-    if (!jcn || jcn.length !== 6) return;
+    if (!JOB_CARD_REGEX.test(jcn)) return;
 
     update({ loading: true, error: "" });
     try {
-      const saltkey = "M4KRJDjfgjd6734@Tk!d";
       const currentEmpId = empId || localStorage.getItem("printech_emp_id") || "EMP0033";
-      const authcode = sha1(saltkey + currentEmpId).toString();
+      const authcode = sha1(SALT_KEY + currentEmpId).toString();
 
-      const formData = new URLSearchParams();
+      const formData = new FormData();
       formData.append("empCode", currentEmpId);
       formData.append("jobCardNo", jcn);
       formData.append("authcode", authcode);
 
-      const res = await fetch("http://117.218.59.130:8080/vasa_wo_api/work_order/viewAssignedJob", {
+      console.log("viewAssignedJob payload", { empCode: currentEmpId, jobCardNo: jcn, authcode });
+
+      const res = await fetch(VIEW_ASSIGNED_JOB_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: formData
       });
       const data = await res.json();
+      console.log("viewAssignedJob response", data);
 
-      if (data.status === 1 || data.job_card_id) {
+      if (Number(data.status) === 1 || data.job_card_id) {
         const jobInfo = data.data || data;
+        const token = data.token || jobInfo.token || "";
+        console.log("token received", token);
         const machineList = jobInfo.machineWoList || [];
-        const uniqueMachines = [];
-        const seen = new Set();
-        machineList.forEach(m => {
+        const mappedMachines = machineList.map((m) => {
           const mName = m.machine_name || m.machineName || m.machine || "Unknown Machine";
-          const pName = m.process_name || "";
-          if (!seen.has(mName)) {
-            seen.add(mName);
-            uniqueMachines.push({ ...m, displayName: mName, processName: pName });
-          }
+          const pName = m.process_name || describeMachineWork(m);
+          return { ...m, displayName: mName, processName: pName };
         });
-
-        const firstMachine = uniqueMachines.length > 0
-          ? (uniqueMachines[0].processName ? `${uniqueMachines[0].displayName} (${uniqueMachines[0].processName})` : uniqueMachines[0].displayName)
-          : (jobInfo.machine_name || "");
+        const defaultMachine = mappedMachines.find((m) => readMachineStatusId(m) !== 3) || mappedMachines[0] || null;
+        const firstMachine = defaultMachine?.displayName || jobInfo.machine_name || "";
 
         update({
           step: 3,
           jobCard: jcn,
-          currentJobData: { ...jobInfo, machineWoList: uniqueMachines },
+          currentJobData: { ...jobInfo, machineWoList: mappedMachines },
           machine: firstMachine,
-          selectedMachineObj: uniqueMachines.length > 0 ? uniqueMachines[0] : null,
-          apiToken: data.token || "",
+          selectedMachineObj: defaultMachine,
+          apiToken: token,
+          statusMessage: "",
           loading: false
         });
         onSync(true);
@@ -389,20 +474,12 @@ function OperatorPage({ state, setState, onSync }) {
     }
   };
 
-  // Automation: Auto-fetch on 6 digits
+  // Automation: Auto-fetch on 8 digits
   useEffect(() => {
-    if (step === 2 && jobLookupNumber.length === 6) {
+    if (step === 2 && jobLookupNumber.length === 8) {
       handleJobLookup(jobLookupNumber);
     }
   }, [jobLookupNumber]);
-
-  // Automation: Auto-advance Step 1
-  useEffect(() => {
-    if (step === 1 && empId.toUpperCase().startsWith("EMP") && empId.length >= 7) {
-      localStorage.setItem("printech_emp_id", empId.toUpperCase());
-      update({ step: 2 });
-    }
-  }, [empId]);
 
   const handleScanError = (error) => {
     update({ scanError: "Camera access failed" });
@@ -410,6 +487,7 @@ function OperatorPage({ state, setState, onSync }) {
 
   const startScanner = () => update({ scannerActive: true, scanError: "" });
   const stopScanner = () => update({ scannerActive: false, scanError: "" });
+  const selectedMachineStatusId = readMachineStatusId(selectedMachineObj);
 
   const StepDot = ({ n, label }) => {
     const done = step > n, active = step === n;
@@ -480,9 +558,8 @@ function OperatorPage({ state, setState, onSync }) {
                           stickyFocus(employeeInputRef);
                         }}
                         onKeyDown={e => {
-                          if (e.key === 'Enter' && empId.toUpperCase().startsWith("EMP") && empId.length >= 4) {
-                            localStorage.setItem("printech_emp_id", empId.toUpperCase());
-                            update({ step: 2 });
+                          if (e.key === 'Enter' && EMPLOYEE_ID_REGEX.test(empId)) {
+                            verifyEmployee();
                           }
                         }}
                       />
@@ -510,20 +587,19 @@ function OperatorPage({ state, setState, onSync }) {
                   </div>
                 )}
                 <button
+                  disabled={loading || !(authMode === "id" ? EMPLOYEE_ID_REGEX.test(empId) : qrAuthDone)}
                   onClick={() => {
-                    const validId = empId.toUpperCase().startsWith("EMP") && empId.length >= 4;
+                    const validId = EMPLOYEE_ID_REGEX.test(empId);
                     if (authMode === "id" && validId) {
-                      localStorage.setItem("printech_emp_id", empId.toUpperCase());
-                      update({ step: 2 });
+                      verifyEmployee();
                     }
                     if (authMode === "qr" && qrAuthDone) {
-                      localStorage.setItem("printech_emp_id", empId.toUpperCase());
-                      update({ step: 2 });
+                      verifyEmployee();
                     }
                   }}
                   style={{
                     marginTop: 24, width: "100%", padding: "13px", borderRadius: 11, border: "none", background: C.accent, color: C.white, fontWeight: 700, fontSize: 15, fontFamily: "'DM Sans',sans-serif", cursor: "pointer",
-                    opacity: (authMode === "id" ? empId.length >= 4 : qrAuthDone) ? 1 : 0.4
+                    opacity: (loading || !(authMode === "id" ? EMPLOYEE_ID_REGEX.test(empId) : qrAuthDone)) ? 0.4 : 1
                   }}>
                   Continue →
                 </button>
@@ -549,7 +625,7 @@ function OperatorPage({ state, setState, onSync }) {
                   <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                       <label style={{ fontSize: 12, fontWeight: 600, color: C.muted, letterSpacing: 0.8, fontFamily: "'DM Mono',monospace" }}>JOB CARD NUMBER</label>
-                      <input id="operator-job-input" ref={jobInputRef} value={jobLookupNumber} onChange={e => update({ jobLookupNumber: e.target.value })} placeholder="e.g. 260099"
+                      <input id="operator-job-input" ref={jobInputRef} value={jobLookupNumber} onChange={e => update({ jobLookupNumber: e.target.value })} placeholder="e.g. 26270083"
                         style={{ border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", fontSize: 16, fontFamily: "'DM Mono',monospace", color: C.text, background: C.white, outline: "none", transition: "border 0.2s", width: "100%" }}
                         onFocus={e => e.target.style.border = `1.5px solid ${C.accent}`}
                         onBlur={e => {
@@ -557,7 +633,7 @@ function OperatorPage({ state, setState, onSync }) {
                           stickyFocus(jobInputRef);
                         }}
                         onKeyDown={e => {
-                          if (e.key === 'Enter' && jobLookupNumber.length >= 5) {
+                          if (e.key === 'Enter' && jobLookupNumber.length === 8) {
                             handleJobLookup();
                           }
                         }}
@@ -589,11 +665,11 @@ function OperatorPage({ state, setState, onSync }) {
                   <button onClick={() => update({ step: 1 })} style={{ padding: "12px 20px", borderRadius: 10, border: `1.5px solid ${C.border}`, background: C.white, color: C.muted, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>← Back</button>
                   <button
                     id="job-continue-btn"
-                    disabled={loading || !(authMode === "id" ? jobLookupNumber.length === 6 : qrJobDone)}
+                    disabled={loading || !(authMode === "id" ? jobLookupNumber.length === 8 : qrJobDone)}
                     onClick={() => handleJobLookup()}
                     style={{
                       flex: 1, padding: "13px", borderRadius: 11, border: "none", background: C.accent, color: C.white, fontWeight: 700, fontSize: 15, fontFamily: "'DM Sans',sans-serif", cursor: "pointer",
-                      opacity: (loading || !(authMode === "id" ? jobLookupNumber.length >= 3 : qrJobDone)) ? 0.4 : 1
+                      opacity: (loading || !(authMode === "id" ? jobLookupNumber.length === 8 : qrJobDone)) ? 0.4 : 1
                     }}>
                     {loading ? "Fetching..." : "Continue →"}
                   </button>
@@ -630,9 +706,13 @@ function OperatorPage({ state, setState, onSync }) {
                       {currentJobData.machineWoList.map((m, idx) => {
                         const mName = m.displayName;
                         const pName = m.processName;
-                        const isSelected = machine === mName;
+                        const mId = readMachineWorkOrderId(m);
+                        const selectedId = readMachineWorkOrderId(selectedMachineObj);
+                        const isSelected = selectedId ? String(selectedId) === String(mId) : machine === mName;
+                        const currentStatusId = readMachineStatusId(m);
+                        const currentStatusLabel = m.current_status || statusConfig[currentStatusId]?.label || "";
                         return (
-                          <button key={idx} onClick={() => update({ machine: mName, selectedMachineObj: m })}
+                          <button key={mId || idx} onClick={() => update({ machine: mName, selectedMachineObj: m, status: "" })}
                             style={{
                               padding: "14px 18px", borderRadius: 12, border: `2.2px solid ${isSelected ? C.accent : C.border}`,
                               background: isSelected ? C.accentLt : C.white,
@@ -646,6 +726,7 @@ function OperatorPage({ state, setState, onSync }) {
                               <div style={{ display: "flex", flexDirection: "column" }}>
                                 <span>{mName}</span>
                                 {pName && <span style={{ fontSize: 11, color: C.muted, fontWeight: 500 }}>{pName}</span>}
+                                {currentStatusLabel && <span style={{ fontSize: 11, color: currentStatusId === 3 ? C.completed : currentStatusId === 2 ? C.inprog : C.muted, fontWeight: 700, marginTop: 3 }}>{currentStatusLabel}</span>}
                               </div>
                             </div>
                             {isSelected && <span style={{ fontSize: 16 }}>✓</span>}
@@ -690,13 +771,16 @@ function OperatorPage({ state, setState, onSync }) {
                 <div style={{ height: 1, background: C.border, marginBottom: 20 }} />
 
                 <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
-                  {Object.entries(statusConfig).map(([id, cfg]) => (
-                    <button key={id} onClick={() => update({ status: id })}
-                      style={{ padding: "16px 14px", borderRadius: 12, border: `2px solid ${status == id ? cfg.color : C.border}`, background: status == id ? cfg.bg : C.white, color: status == id ? cfg.color : C.muted, fontWeight: 700, fontSize: 15, fontFamily: "'DM Sans',sans-serif", cursor: "pointer", transition: "all 0.2s", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                  {Object.entries(statusConfig).map(([id, cfg]) => {
+                    const isBlockedStatus = selectedMachineStatusId > 0 && Number(id) <= selectedMachineStatusId;
+                    return (
+                    <button key={id} disabled={isBlockedStatus} onClick={() => { if (!isBlockedStatus) update({ status: id }); }}
+                      style={{ padding: "16px 14px", borderRadius: 12, border: `2px solid ${status == id ? cfg.color : C.border}`, background: status == id ? cfg.bg : C.white, color: status == id ? cfg.color : C.muted, fontWeight: 700, fontSize: 15, fontFamily: "'DM Sans',sans-serif", cursor: isBlockedStatus ? "not-allowed" : "pointer", opacity: isBlockedStatus ? 0.45 : 1, transition: "all 0.2s", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                       <span style={{ fontSize: 20 }}>{cfg.icon}</span>
-                      {cfg.label}
+                      {cfg.label}{Number(id) === selectedMachineStatusId ? " (current)" : ""}
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {status && (
@@ -733,38 +817,46 @@ function OperatorPage({ state, setState, onSync }) {
                           return;
                         }
 
-                        const formData = new URLSearchParams();
+                        console.log("selected machine_workorder_id", machineWorkOrderIdStr);
+
+                        if (!apiToken) {
+                          update({ error: "Token missing from job lookup response. Re-open job and try again.", loading: false });
+                          return;
+                        }
+
+                        if (!/^\d+$/.test(machineWorkOrderIdStr)) {
+                          update({ error: "Machine mapping must include a valid numeric machine workorder id.", loading: false });
+                          return;
+                        }
+
+                        const formData = new FormData();
+                        formData.append("token", apiToken);
                         formData.append("machine_workorder_id", machineWorkOrderIdStr);
                         formData.append("work_status", statusStr);
-                        formData.append("token", apiToken);
 
-                        const res = await fetch("http://117.218.59.130/vasa_wo_api/work_order/work_status_change", {
+                        console.log("work_status_change payload", {
+                          token: apiToken,
+                          machine_workorder_id: machineWorkOrderIdStr,
+                          work_status: statusStr
+                        });
+
+                        const res = await fetch(WORK_STATUS_CHANGE_URL, {
                           method: "POST",
-                          headers: { "Content-Type": "application/x-www-form-urlencoded" },
                           body: formData
                         });
 
                         let data = null;
-                        let rawText = "";
-                        const contentType = res.headers.get("content-type") || "";
-                        if (contentType.includes("application/json")) {
-                          data = await res.json();
-                        } else {
-                          rawText = await res.text();
-                          try {
-                            data = JSON.parse(rawText);
-                          } catch {
-                            data = null;
-                            const text = await res.text();
-                            console.log("Status update response:", text);
-                            // Even if we fail to parse JSON, if it's 200 OK, we count it as success
-                            update({ step: 5, loading: false });
-                            onSync(true);
-                          }
+                        const rawText = await res.text();
+                        try {
+                          data = JSON.parse(rawText);
+                        } catch {
+                          data = null;
                         }
+                        console.log("work_status_change response", data || rawText);
 
-                        if (res.ok && data?.status === 1) {
-                          update({ step: 5, loading: false });
+                        if (res.ok && Number(data?.status) === 1) {
+                          update({ step: 5, statusMessage: data.msg || "Status synced with the production database", loading: false });
+                          onSync(true);
                         } else {
                           const backendMessage =
                             data?.msg ||
@@ -797,7 +889,7 @@ function OperatorPage({ state, setState, onSync }) {
               <div style={{ textAlign: "center", padding: "16px 0" }}>
                 <div style={{ width: 64, height: 64, borderRadius: "50%", background: C.accentLt, border: `3px solid ${C.accent}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, margin: "0 auto 16px" }}>✓</div>
                 <div style={{ fontSize: 18, fontWeight: 800, color: C.text, fontFamily: "'Lora',serif", marginBottom: 6 }}>Update Submitted!</div>
-                <div style={{ fontSize: 13, color: C.muted, marginBottom: 20 }}>Status synced with the production database</div>
+                <div style={{ fontSize: 13, color: C.muted, marginBottom: 20 }}>{statusMessage || "Status synced with the production database"}</div>
                 <div style={{ background: "#f8faf9", border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px", textAlign: "left", display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
                   {[
                     ["Job ID", jobLookupNumber || jobCard || "N/A", "'DM Mono',monospace"],
@@ -816,7 +908,7 @@ function OperatorPage({ state, setState, onSync }) {
                   localStorage.removeItem("printech_emp_id");
                   setState(prev => ({
                     ...prev,
-                    step: 1, authMode: "id", empId: "", jobLookupNumber: "", jobCard: "", machine: "", status: "", apiToken: "", scannerActive: false, scanError: "", error: "", currentJobData: null, selectedMachineObj: null
+                    step: 1, authMode: "id", empId: "", jobLookupNumber: "", jobCard: "", machine: "", status: "", apiToken: "", scannerActive: false, scanError: "", error: "", statusMessage: "", currentJobData: null, selectedMachineObj: null
                   }));
                   setQrAuthDone(false);
                   setQrJobDone(false);
@@ -834,7 +926,7 @@ function OperatorPage({ state, setState, onSync }) {
 }
 
 /* ── JOB LOOKUP PAGE ────────────────────────────────────────── */
-function JobLookupPage({ empId, apiToken, onSync, triggerLookup }) {
+function JobLookupPage({ empId, onSync, triggerLookup }) {
   const [query, setQuery] = useState("");
   const [result, setResult] = useState(null);
   const [searched, setSearched] = useState(false);
@@ -866,9 +958,9 @@ function JobLookupPage({ empId, apiToken, onSync, triggerLookup }) {
     }
   }, [triggerLookup]);
 
-  // Auto-fetch when query hits 6 digits
+  // Auto-fetch when query hits 8 digits
   useEffect(() => {
-    if (query.trim().length === 6 && !loading && !searched) {
+    if (query.trim().length === 8 && !loading && !searched) {
       search(query);
     }
   }, [query]);
@@ -876,30 +968,37 @@ function JobLookupPage({ empId, apiToken, onSync, triggerLookup }) {
   const search = async (qOverride) => {
     const q = (qOverride || query).trim().toUpperCase();
     if (!q) return;
+    if (!JOB_CARD_REGEX.test(q)) {
+      setResult(null);
+      setError("Enter an 8-digit job card number");
+      setSearched(true);
+      return;
+    }
 
     setLoading(true);
     setError("");
     setSearched(true);
     try {
-      const saltkey = "M4KRJDjfgjd6734@Tk!d";
       const currentEmpId = empId || localStorage.getItem("printech_emp_id") || "EMP0033";
-      const authcode = sha1(saltkey + currentEmpId).toString();
+      const authcode = sha1(SALT_KEY + currentEmpId).toString();
 
-      const formData = new URLSearchParams();
+      const formData = new FormData();
       // Default to EMP0033 for manager lookup if no ID present
       formData.append("empCode", currentEmpId);
-      formData.append("token", apiToken);
       formData.append("jobCardNo", q);
       formData.append("authcode", authcode);
 
-      const res = await fetch("http://117.218.59.130/vasa_wo_api/work_order/viewAssignedJob", {
+      console.log("viewAssignedJob payload", { empCode: currentEmpId, jobCardNo: q, authcode });
+
+      const res = await fetch(VIEW_ASSIGNED_JOB_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: formData
       });
       const data = await res.json();
+      console.log("viewAssignedJob response", data);
+      console.log("token received", data.token || data.data?.token || "");
 
-      if (data.status === 1 || data.job_card_id) {
+      if (Number(data.status) === 1 || data.job_card_id) {
         setResult(data.data || data);
         onSync(true);
       } else {
@@ -917,9 +1016,14 @@ function JobLookupPage({ empId, apiToken, onSync, triggerLookup }) {
 
   const handleQRScan = (data) => {
     if (data) {
-      // Direct assignment for job card QR
-      setQuery(data);
-      search(data);
+      const jobCardNo = String(data).match(JOB_CARD_EXTRACT_REGEX)?.[0] || "";
+      if (jobCardNo) {
+        // Direct assignment for job card QR
+        setQuery(jobCardNo);
+        search(jobCardNo);
+      } else {
+        setScanError("Job card QR must be exactly 8 digits");
+      }
     } else {
       setScanError("Invalid QR");
     }
@@ -1132,6 +1236,7 @@ export default function App() {
     scanError: "",
     loading: false,
     error: "",
+    statusMessage: "",
     currentJobData: null,
     selectedMachineObj: null,
     apiToken: ""
@@ -1178,10 +1283,9 @@ export default function App() {
         if (!val) return;
 
         // 1. ROUTE EMPLOYEE BADGES
-        if (val.startsWith("EMP") && val.length >= 4) {
+        if (EMPLOYEE_ID_REGEX.test(val)) {
           setActive("operator");
-          setState(prev => ({ ...prev, step: 2, empId: val }));
-          localStorage.setItem("printech_emp_id", val);
+          setState(prev => ({ ...prev, step: 1, empId: val }));
           return;
         }
 
@@ -1262,7 +1366,7 @@ export default function App() {
           <OperatorPage state={state} setState={setState} onSync={handleSync} />
         </div>
         <div style={{ display: active === "jobview" ? "block" : "none", height: "100%" }}>
-          <JobLookupPage empId={state.empId} apiToken={state.apiToken} onSync={handleSync} triggerLookup={state.triggerLookup && state.jobLookupNumber} />
+          <JobLookupPage empId={state.empId} onSync={handleSync} triggerLookup={state.triggerLookup && state.jobLookupNumber} />
         </div>
       </div>
     </div>

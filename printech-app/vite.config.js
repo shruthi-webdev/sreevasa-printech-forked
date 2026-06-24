@@ -8,5 +8,11 @@ export default defineConfig({
     server: {
         host: true,
         https: true,
+        proxy: {
+            '/vasa_wo_api': {
+                target: process.env.VITE_API_PROXY_TARGET || 'http://117.218.59.130:8080',
+                changeOrigin: true,
+            },
+        },
     },
 })
