@@ -48,7 +48,7 @@ const statusConfig = {
 const SALT_KEY = "M4KRJDjfgjd6734@Tk!d";
 const API_BASE_PATH = (import.meta.env.VITE_API_BASE_PATH || "/vasa_wo_api").replace(/\/$/, "");
 const VIEW_ASSIGNED_JOB_URL = `${API_BASE_PATH}/work_order/viewAssignedJob`;
-const WORK_STATUS_CHANGE_URL = `${API_BASE_PATH}/work_order/work_status_change`;
+const STATUS_UPDATE_URL = VIEW_ASSIGNED_JOB_URL;
 const JOB_CARD_REGEX = /^\d{8}$/;
 const JOB_CARD_EXTRACT_REGEX = /\b\d{8}\b/;
 const EMPLOYEE_ID_REGEX = /^EMP\d{4,}$/i;
@@ -109,6 +109,30 @@ const buildAssignedJobRequest = (empCode, jobCardNo) => {
   return {
     formData,
     payload: { authcode, empCode: normalizedEmpCode, jobCardNo: normalizedJobCardNo }
+  };
+};
+
+const buildStatusUpdateRequest = ({ token, machineWorkOrderId, workStatus, empCode, jobCardNo }) => {
+  const normalizedEmpCode = String(empCode || "").trim().toUpperCase();
+  const normalizedJobCardNo = String(jobCardNo || "").trim();
+  const payload = {
+    token: String(token || "").trim(),
+    machine_workorder_id: String(machineWorkOrderId ?? "").trim(),
+    work_status: String(workStatus ?? "").trim(),
+    authcode: sha1(SALT_KEY + normalizedEmpCode).toString(),
+    empCode: normalizedEmpCode,
+    jobCardNo: normalizedJobCardNo
+  };
+  const params = new URLSearchParams(payload);
+  const formData = new FormData();
+  Object.entries(payload).forEach(([key, value]) => {
+    formData.append(key, value);
+  });
+
+  return {
+    url: `${STATUS_UPDATE_URL}?${params.toString()}`,
+    formData,
+    payload
   };
 };
 
@@ -281,6 +305,15 @@ function OperatorPage({ state, setState, onSync }) {
     return [...new Set([...processNames, ...descriptions])].join(" / ");
   };
 
+  const mapMachineWorkList = (jobInfo) => {
+    const machineList = jobInfo?.machineWoList || jobInfo?.machine_wo_list || jobInfo?.machineList || jobInfo?.machine_list || [];
+    return machineList.map((m) => {
+      const mName = m.machine_name || m.machineName || m.machine || "Unknown Machine";
+      const pName = m.process_name || describeMachineWork(m);
+      return { ...m, displayName: mName, processName: pName };
+    });
+  };
+
   const resolveMachineWorkOrderId = () => {
     const list = currentJobData?.machineWoList;
     const normalize = (v) => String(v || "").trim().toLowerCase();
@@ -355,6 +388,37 @@ function OperatorPage({ state, setState, onSync }) {
     });
     onSync(true);
     return true;
+  };
+
+  const fetchAssignedJobForVerification = async (currentEmpId, currentJobCardNo, machineWorkOrderIdStr) => {
+    const { formData, payload } = buildAssignedJobRequest(currentEmpId, currentJobCardNo);
+    console.log("verify assigned job payload", payload);
+
+    const res = await fetch(VIEW_ASSIGNED_JOB_URL, {
+      method: "POST",
+      body: formData
+    });
+    const { data, rawText } = await readApiResponse(res);
+    console.log("verify assigned job response", data || rawText);
+
+    if (!res.ok || !isAssignedJobSuccess(data)) {
+      throw new Error(getBackendMessage(data, rawText, `Verification failed (${res.status})`));
+    }
+
+    const jobInfo = unwrapAssignedJob(data);
+    const mappedMachines = mapMachineWorkList(jobInfo);
+    const verifiedMachine = mappedMachines.find((m) => String(readMachineWorkOrderId(m)) === String(machineWorkOrderIdStr));
+
+    if (!verifiedMachine) {
+      throw new Error("Update accepted, but the selected machine was not found in the fresh server response.");
+    }
+
+    return {
+      jobInfo,
+      mappedMachines,
+      verifiedMachine,
+      token: data?.token || jobInfo?.token || apiToken || ""
+    };
   };
 
   // Handle QR scan results
@@ -450,12 +514,7 @@ function OperatorPage({ state, setState, onSync }) {
         const jobInfo = unwrapAssignedJob(data);
         const token = data.token || jobInfo.token || "";
         console.log("token received", token);
-        const machineList = jobInfo.machineWoList || jobInfo.machine_wo_list || jobInfo.machineList || jobInfo.machine_list || [];
-        const mappedMachines = machineList.map((m) => {
-          const mName = m.machine_name || m.machineName || m.machine || "Unknown Machine";
-          const pName = m.process_name || describeMachineWork(m);
-          return { ...m, displayName: mName, processName: pName };
-        });
+        const mappedMachines = mapMachineWorkList(jobInfo);
         const defaultMachine = mappedMachines.find((m) => readMachineStatusId(m) !== 3) || mappedMachines[0] || null;
         const firstMachine = defaultMachine?.displayName || jobInfo.machine_name || "";
 
@@ -839,33 +898,51 @@ function OperatorPage({ state, setState, onSync }) {
                           return;
                         }
 
-                        const formData = new FormData();
-                        formData.append("token", apiToken);
-                        formData.append("machine_workorder_id", machineWorkOrderIdStr);
-                        formData.append("work_status", statusStr);
+                        const currentEmpId = String(empId || localStorage.getItem("printech_emp_id") || "").trim().toUpperCase();
+                        const currentJobCardNo = String(jobCard || jobLookupNumber || currentJobData?.jobCardNo || currentJobData?.job_card_id || "").trim();
+                        if (!EMPLOYEE_ID_REGEX.test(currentEmpId) || !JOB_CARD_REGEX.test(currentJobCardNo)) {
+                          update({ error: "Employee code or job card missing. Re-open job and try again.", loading: false });
+                          return;
+                        }
 
-                        console.log("work_status_change payload", {
+                        const { url, formData, payload } = buildStatusUpdateRequest({
                           token: apiToken,
-                          machine_workorder_id: machineWorkOrderIdStr,
-                          work_status: statusStr
+                          machineWorkOrderId: machineWorkOrderIdStr,
+                          workStatus: statusStr,
+                          empCode: currentEmpId,
+                          jobCardNo: currentJobCardNo
                         });
 
-                        const res = await fetch(WORK_STATUS_CHANGE_URL, {
+                        console.log("status update payload", payload);
+
+                        const res = await fetch(url, {
                           method: "POST",
                           body: formData
                         });
 
-                        let data = null;
-                        const rawText = await res.text();
-                        try {
-                          data = JSON.parse(rawText);
-                        } catch {
-                          data = null;
-                        }
-                        console.log("work_status_change response", data || rawText);
+                        const { data, rawText } = await readApiResponse(res);
+                        console.log("status update response", data || rawText);
 
                         if (res.ok && Number(data?.status) === 1) {
-                          update({ step: 5, statusMessage: data.msg || "Status synced with the production database", loading: false });
+                          const verification = await fetchAssignedJobForVerification(currentEmpId, currentJobCardNo, machineWorkOrderIdStr);
+                          const verifiedStatusId = readMachineStatusId(verification.verifiedMachine);
+                          const verifiedStatusLabel =
+                            verification.verifiedMachine.current_status ||
+                            statusConfig[verifiedStatusId]?.label ||
+                            statusConfig[status]?.label ||
+                            "Updated";
+                          const verifiedMachineName = verification.verifiedMachine.displayName || machine;
+
+                          update({
+                            step: 5,
+                            machine: verifiedMachineName,
+                            status: verifiedStatusId ? String(verifiedStatusId) : status,
+                            statusMessage: `${data.msg || "Success."} Server now shows ${verifiedStatusLabel}.`,
+                            currentJobData: { ...verification.jobInfo, machineWoList: verification.mappedMachines },
+                            selectedMachineObj: verification.verifiedMachine,
+                            apiToken: verification.token,
+                            loading: false
+                          });
                           onSync(true);
                         } else {
                           const backendMessage =
@@ -873,10 +950,10 @@ function OperatorPage({ state, setState, onSync }) {
                             data?.message ||
                             (typeof rawText === "string" && rawText.trim().slice(0, 220)) ||
                             `Request failed (${res.status})`;
-                          console.error("work_status_change failed", {
+                          console.error("status update failed", {
                             status: res.status,
                             response: data || rawText,
-                            request: Object.fromEntries(formData.entries())
+                            request: payload
                           });
                           update({ error: backendMessage || "Failed to update status", loading: false });
                         }
@@ -943,6 +1020,8 @@ function JobLookupPage({ empId, onSync, triggerLookup }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [scanError, setScanError] = useState("");
+  const [lookupMode, setLookupMode] = useState("manual");
+  const [scannerActive, setScannerActive] = useState(false);
   const inputRef = useRef(null);
 
   // Sticky Focus Helper
@@ -956,8 +1035,8 @@ function JobLookupPage({ empId, onSync, triggerLookup }) {
 
   // Keep focus on mount
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    if (lookupMode === "manual") inputRef.current?.focus();
+  }, [lookupMode]);
 
   // Handle Global Scans routed to this page
   useEffect(() => {
@@ -1023,6 +1102,11 @@ function JobLookupPage({ empId, onSync, triggerLookup }) {
       const jobCardNo = String(data).match(JOB_CARD_EXTRACT_REGEX)?.[0] || "";
       if (jobCardNo) {
         // Direct assignment for job card QR
+        setScannerActive(false);
+        setLookupMode("manual");
+        setScanError("");
+        setSearched(false);
+        setResult(null);
         setQuery(jobCardNo);
         search(jobCardNo);
       } else {
@@ -1031,6 +1115,10 @@ function JobLookupPage({ empId, onSync, triggerLookup }) {
     } else {
       setScanError("Invalid QR");
     }
+  };
+
+  const handleScanError = () => {
+    setScanError("Camera access failed");
   };
 
   const sc = result ? statusConfig[result.workorder_status || result.workOrderSts || result.status] : null;
@@ -1083,6 +1171,50 @@ function JobLookupPage({ empId, onSync, triggerLookup }) {
           <div style={{ padding: "24px 28px" }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: C.text, fontFamily: "'Lora',serif", marginBottom: 16 }}>Scan or Enter Job Card</div>
 
+            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+              <button onClick={() => {
+                setLookupMode("manual");
+                setScannerActive(false);
+                setScanError("");
+                inputRef.current?.focus();
+              }}
+                style={{ flex: 1, padding: "10px", borderRadius: 10, border: `1.5px solid ${lookupMode === "manual" ? C.accent : C.border}`, background: lookupMode === "manual" ? C.accentLt : C.white, color: lookupMode === "manual" ? C.accent : C.muted, fontFamily: "'DM Sans',sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                Enter Number
+              </button>
+              <button onClick={() => {
+                setLookupMode("qr");
+                setScannerActive(true);
+                setScanError("");
+              }}
+                style={{ flex: 1, padding: "10px", borderRadius: 10, border: `1.5px solid ${lookupMode === "qr" ? C.accent : C.border}`, background: lookupMode === "qr" ? C.accentLt : C.white, color: lookupMode === "qr" ? C.accent : C.muted, fontFamily: "'DM Sans',sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                Scan QR
+              </button>
+            </div>
+
+            {lookupMode === "qr" && (
+              <div style={{ marginBottom: 16 }}>
+                {scannerActive ? (
+                  <div>
+                    <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: C.accent }}>Scanning Job Card...</div>
+                      <button onClick={() => { setScannerActive(false); setScanError(""); }}
+                        style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.white, color: C.muted, fontSize: 11, cursor: "pointer" }}>
+                        Cancel
+                      </button>
+                    </div>
+                    <QrScanner onScan={handleQRScan} onError={handleScanError} />
+                  </div>
+                ) : (
+                  <button onClick={() => { setScannerActive(true); setScanError(""); }}
+                    style={{ width: "100%", padding: "13px", borderRadius: 11, border: "none", background: C.accent, color: C.white, fontWeight: 700, fontSize: 15, fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}>
+                    Start Scanner
+                  </button>
+                )}
+              </div>
+            )}
+
+            {scanError && <div style={{ color: "#dc2626", fontSize: 12, marginBottom: 12, textAlign: "center", background: "#fef2f2", padding: "8px", borderRadius: 8 }}>{scanError}</div>}
+
 
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div style={{ display: "flex", gap: 10 }}>
@@ -1101,7 +1233,7 @@ function JobLookupPage({ empId, onSync, triggerLookup }) {
                 </button>
               </div>
             </div>
-            <div style={{ color: C.muted, fontSize: 11, marginTop: 8, fontFamily: "'DM Mono',monospace" }}>Enter job card number to view live status</div>
+            <div style={{ color: C.muted, fontSize: 11, marginTop: 8, fontFamily: "'DM Mono',monospace" }}>Enter or scan job card number to view live status</div>
           </div>
         </div>
 
