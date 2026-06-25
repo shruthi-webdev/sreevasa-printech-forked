@@ -47,7 +47,6 @@ const statusConfig = {
 
 const SALT_KEY = "M4KRJDjfgjd6734@Tk!d";
 const API_BASE_PATH = (import.meta.env.VITE_API_BASE_PATH || "/vasa_wo_api").replace(/\/$/, "");
-const VIEW_USER_URL = `${API_BASE_PATH}/user/viewUser`;
 const VIEW_ASSIGNED_JOB_URL = `${API_BASE_PATH}/work_order/viewAssignedJob`;
 const WORK_STATUS_CHANGE_URL = `${API_BASE_PATH}/work_order/work_status_change`;
 const JOB_CARD_REGEX = /^\d{8}$/;
@@ -96,6 +95,65 @@ const Input = ({ label, placeholder, value, onChange, mono, onKeyDown }) => (
       onBlur={e => e.target.style.border = `1.5px solid ${C.border}`}
     />
   </div>
+);
+
+const buildAssignedJobRequest = (empCode, jobCardNo) => {
+  const normalizedEmpCode = String(empCode || "").trim().toUpperCase();
+  const normalizedJobCardNo = String(jobCardNo || "").trim();
+  const authcode = sha1(SALT_KEY + normalizedEmpCode).toString();
+  const formData = new FormData();
+  formData.append("authcode", authcode);
+  formData.append("empCode", normalizedEmpCode);
+  formData.append("jobCardNo", normalizedJobCardNo);
+
+  return {
+    formData,
+    payload: { authcode, empCode: normalizedEmpCode, jobCardNo: normalizedJobCardNo }
+  };
+};
+
+const readApiResponse = async (res) => {
+  const rawText = await res.text();
+  try {
+    return { data: JSON.parse(rawText), rawText };
+  } catch {
+    return { data: null, rawText };
+  }
+};
+
+const unwrapAssignedJob = (data) => {
+  const body = data?.data || data?.result || data?.rows || data || {};
+  return Array.isArray(body) ? (body[0] || {}) : body;
+};
+
+const hasAssignedJobFields = (value) => {
+  const body = Array.isArray(value) ? value[0] : value;
+  return Boolean(
+    body?.job_card_id ||
+    body?.jobCardNo ||
+    body?.workorder_id ||
+    body?.workOrderId ||
+    body?.machineWoList ||
+    body?.machine_wo_list ||
+    body?.machineList ||
+    body?.machine_list
+  );
+};
+
+const isAssignedJobSuccess = (data) => (
+  Number(data?.status) === 1 ||
+  Number(data?.success) === 1 ||
+  hasAssignedJobFields(data) ||
+  hasAssignedJobFields(data?.data) ||
+  hasAssignedJobFields(data?.result) ||
+  hasAssignedJobFields(data?.rows)
+);
+
+const getBackendMessage = (data, rawText, fallback) => (
+  data?.msg ||
+  data?.message ||
+  (typeof rawText === "string" && rawText.trim().slice(0, 220)) ||
+  fallback
 );
 
 /* ── SIDEBAR ────────────────────────────────────────────────── */
@@ -285,58 +343,18 @@ function OperatorPage({ state, setState, onSync }) {
       return false;
     }
 
-    update({ loading: true, error: "", scanError: "" });
-    try {
-      const authcode = sha1(SALT_KEY + code).toString();
-      const formData = new FormData();
-      formData.append("empCode", code);
-      formData.append("authcode", authcode);
-
-      console.log("viewUser payload", { empCode: code, authcode });
-
-      const res = await fetch(VIEW_USER_URL, {
-        method: "POST",
-        body: formData
-      });
-
-      const rawText = await res.text();
-      let data = null;
-      try {
-        data = JSON.parse(rawText);
-      } catch {
-        data = null;
-      }
-      console.log("viewUser response", data || rawText);
-
-      if (res.ok && (Number(data?.status) === 1 || data?.data || data?.empCode || data?.employee_code)) {
-        const token = data?.token || data?.data?.token || "";
-        localStorage.setItem("printech_emp_id", code);
-        update({
-          empId: code,
-          step: 2,
-          loading: false,
-          scannerActive: false,
-          scanError: "",
-          ...(token ? { apiToken: token } : {})
-        });
-        onSync(true);
-        return true;
-      }
-
-      const backendMessage =
-        data?.msg ||
-        data?.message ||
-        (typeof rawText === "string" && rawText.trim().slice(0, 220)) ||
-        `Employee verification failed (${res.status})`;
-      update({ error: backendMessage, loading: false });
-      onSync(true);
-      return false;
-    } catch (err) {
-      console.error("viewUser execution error:", err);
-      update({ error: "Connection error: " + err.message, loading: false });
-      onSync(false);
-      return false;
-    }
+    localStorage.setItem("printech_emp_id", code);
+    update({
+      empId: code,
+      step: 2,
+      loading: false,
+      scannerActive: false,
+      scanError: "",
+      error: "",
+      authMode: "id"
+    });
+    onSync(true);
+    return true;
   };
 
   // Handle QR scan results
@@ -409,31 +427,30 @@ function OperatorPage({ state, setState, onSync }) {
   const handleJobLookup = async (overrideNumber) => {
     const jcn = overrideNumber || (authMode === "id" ? jobLookupNumber : jobCard);
     if (!JOB_CARD_REGEX.test(jcn)) return;
+    const currentEmpId = String(empId || localStorage.getItem("printech_emp_id") || "").trim().toUpperCase();
+    if (!EMPLOYEE_ID_REGEX.test(currentEmpId)) {
+      update({ error: "Enter employee code before searching the job card", loading: false });
+      return;
+    }
 
     update({ loading: true, error: "" });
     try {
-      const currentEmpId = empId || localStorage.getItem("printech_emp_id") || "EMP0033";
-      const authcode = sha1(SALT_KEY + currentEmpId).toString();
+      const { formData, payload } = buildAssignedJobRequest(currentEmpId, jcn);
 
-      const formData = new FormData();
-      formData.append("empCode", currentEmpId);
-      formData.append("jobCardNo", jcn);
-      formData.append("authcode", authcode);
-
-      console.log("viewAssignedJob payload", { empCode: currentEmpId, jobCardNo: jcn, authcode });
+      console.log("viewAssignedJob payload", payload);
 
       const res = await fetch(VIEW_ASSIGNED_JOB_URL, {
         method: "POST",
         body: formData
       });
-      const data = await res.json();
-      console.log("viewAssignedJob response", data);
+      const { data, rawText } = await readApiResponse(res);
+      console.log("viewAssignedJob response", data || rawText);
 
-      if (Number(data.status) === 1 || data.job_card_id) {
-        const jobInfo = data.data || data;
+      if (res.ok && isAssignedJobSuccess(data)) {
+        const jobInfo = unwrapAssignedJob(data);
         const token = data.token || jobInfo.token || "";
         console.log("token received", token);
-        const machineList = jobInfo.machineWoList || [];
+        const machineList = jobInfo.machineWoList || jobInfo.machine_wo_list || jobInfo.machineList || jobInfo.machine_list || [];
         const mappedMachines = machineList.map((m) => {
           const mName = m.machine_name || m.machineName || m.machine || "Unknown Machine";
           const pName = m.process_name || describeMachineWork(m);
@@ -444,7 +461,9 @@ function OperatorPage({ state, setState, onSync }) {
 
         update({
           step: 3,
+          empId: currentEmpId,
           jobCard: jcn,
+          jobLookupNumber: jcn,
           currentJobData: { ...jobInfo, machineWoList: mappedMachines },
           machine: firstMachine,
           selectedMachineObj: defaultMachine,
@@ -452,24 +471,15 @@ function OperatorPage({ state, setState, onSync }) {
           statusMessage: "",
           loading: false
         });
+        localStorage.setItem("printech_emp_id", currentEmpId);
         onSync(true);
       } else {
-        update({ error: data.msg || "Job not found", loading: false });
+        update({ error: getBackendMessage(data, rawText, `Job lookup failed (${res.status})`), loading: false });
         onSync(true);
       }
     } catch (err) {
-      // OFFLINE ALTERNATIVE: Fallback to sample data for testing
-      console.log("Server unreachable, using offline fallback for testing.");
-      const mockJob = sampleJobs.find(j => j.id === jcn) || sampleJobs[0];
-      update({
-        error: "Server Offline — Using Demo Data",
-        loading: false,
-        step: 3,
-        jobCard: jcn,
-        currentJobData: { ...mockJob, machineWoList: [] },
-        machine: mockJob.machine,
-        apiToken: "MOCK_TOKEN"
-      });
+      console.error("viewAssignedJob execution error:", err);
+      update({ error: "Connection error: " + err.message, loading: false });
       onSync(false);
     }
   };
@@ -534,8 +544,8 @@ function OperatorPage({ state, setState, onSync }) {
             {/* STEP 1 — EMP */}
             {step === 1 && (
               <div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: C.text, fontFamily: "'Lora',serif", marginBottom: 4 }}>Employee Authentication</div>
-                <div style={{ fontSize: 12, color: C.muted, marginBottom: 24 }}>Verify your identity to begin</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.text, fontFamily: "'Lora',serif", marginBottom: 4 }}>Employee Entry</div>
+                <div style={{ fontSize: 12, color: C.muted, marginBottom: 24 }}>Enter employee code before loading the assigned job</div>
 
                 <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
                   {["id", "qr"].map(m => (
@@ -979,31 +989,25 @@ function JobLookupPage({ empId, onSync, triggerLookup }) {
     setError("");
     setSearched(true);
     try {
-      const currentEmpId = empId || localStorage.getItem("printech_emp_id") || "EMP0033";
-      const authcode = sha1(SALT_KEY + currentEmpId).toString();
+      const currentEmpId = String(empId || localStorage.getItem("printech_emp_id") || "EMP0033").trim().toUpperCase();
+      const { formData, payload } = buildAssignedJobRequest(currentEmpId, q);
 
-      const formData = new FormData();
-      // Default to EMP0033 for manager lookup if no ID present
-      formData.append("empCode", currentEmpId);
-      formData.append("jobCardNo", q);
-      formData.append("authcode", authcode);
-
-      console.log("viewAssignedJob payload", { empCode: currentEmpId, jobCardNo: q, authcode });
+      console.log("viewAssignedJob payload", payload);
 
       const res = await fetch(VIEW_ASSIGNED_JOB_URL, {
         method: "POST",
         body: formData
       });
-      const data = await res.json();
-      console.log("viewAssignedJob response", data);
-      console.log("token received", data.token || data.data?.token || "");
+      const { data, rawText } = await readApiResponse(res);
+      console.log("viewAssignedJob response", data || rawText);
+      console.log("token received", data?.token || data?.data?.token || "");
 
-      if (Number(data.status) === 1 || data.job_card_id) {
-        setResult(data.data || data);
+      if (res.ok && isAssignedJobSuccess(data)) {
+        setResult(unwrapAssignedJob(data));
         onSync(true);
       } else {
         setResult(null);
-        setError(data.msg || "Job not found");
+        setError(getBackendMessage(data, rawText, `Job lookup failed (${res.status})`));
         onSync(true);
       }
     } catch (err) {
@@ -1284,8 +1288,9 @@ export default function App() {
 
         // 1. ROUTE EMPLOYEE BADGES
         if (EMPLOYEE_ID_REGEX.test(val)) {
+          localStorage.setItem("printech_emp_id", val);
           setActive("operator");
-          setState(prev => ({ ...prev, step: 1, empId: val }));
+          setState(prev => ({ ...prev, step: 2, empId: val, authMode: "id", scannerActive: false, scanError: "", error: "" }));
           return;
         }
 
@@ -1293,7 +1298,7 @@ export default function App() {
         if (/^\d{8}$/.test(val)) {
           // If we ARE an operator and already logged in, stay in Operator Entry
           if (active === "operator" && state.empId) {
-            setState(prev => ({ ...prev, jobLookupNumber: val }));
+            setState(prev => ({ ...prev, step: 2, authMode: "id", jobLookupNumber: val, jobCard: val }));
           } else {
             // Otherwise, switch to Job Lookup
             setActive("jobview");
