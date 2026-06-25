@@ -48,7 +48,7 @@ const statusConfig = {
 const SALT_KEY = "M4KRJDjfgjd6734@Tk!d";
 const API_BASE_PATH = (import.meta.env.VITE_API_BASE_PATH || "/vasa_wo_api").replace(/\/$/, "");
 const VIEW_ASSIGNED_JOB_URL = `${API_BASE_PATH}/work_order/viewAssignedJob`;
-const STATUS_UPDATE_URL = VIEW_ASSIGNED_JOB_URL;
+const STATUS_UPDATE_URL = `${API_BASE_PATH}/work_order/work_status_change`;
 const JOB_CARD_REGEX = /^\d{8}$/;
 const JOB_CARD_EXTRACT_REGEX = /\b\d{8}\b/;
 const EMPLOYEE_ID_REGEX = /^EMP\d{4,}$/i;
@@ -123,14 +123,13 @@ const buildStatusUpdateRequest = ({ token, machineWorkOrderId, workStatus, empCo
     empCode: normalizedEmpCode,
     jobCardNo: normalizedJobCardNo
   };
-  const params = new URLSearchParams(payload);
   const formData = new FormData();
   Object.entries(payload).forEach(([key, value]) => {
     formData.append(key, value);
   });
 
   return {
-    url: `${STATUS_UPDATE_URL}?${params.toString()}`,
+    url: STATUS_UPDATE_URL,
     formData,
     payload
   };
@@ -932,6 +931,18 @@ function OperatorPage({ state, setState, onSync }) {
                             statusConfig[status]?.label ||
                             "Updated";
                           const verifiedMachineName = verification.verifiedMachine.displayName || machine;
+                          const targetStatusId = Number(status);
+
+                          if (verifiedStatusId !== targetStatusId) {
+                            update({
+                              error: `Server accepted the request, but ${verifiedMachineName} still shows ${verifiedStatusLabel}. Please retry.`,
+                              currentJobData: { ...verification.jobInfo, machineWoList: verification.mappedMachines },
+                              selectedMachineObj: verification.verifiedMachine,
+                              apiToken: verification.token,
+                              loading: false
+                            });
+                            return;
+                          }
 
                           update({
                             step: 5,
