@@ -1330,16 +1330,18 @@ function JobLookupPage({ empId, onSync, triggerLookup }) {
                       <tbody>
                         {result.machineWoList.map((m, idx) => {
                           const jobFinished = (result.workorder_status || result.workOrderSts || result.status) >= 3;
-                          const currentStatus = m.status || (jobFinished ? "Completed" : "Pending");
+                          const currentStatusId = Number(m.current_status_id || m.currentStatusId || m.current_statusId || 0);
+                          const currentStatus = m.current_status || m.currentStatus || m.status || statusConfig[currentStatusId]?.label || (jobFinished ? "Completed" : "Pending");
+                          const processName = m.process_name || m.processName || (Array.isArray(m.processData) ? m.processData.map((p) => p.processName).filter(Boolean).join(" / ") : "") || "General";
                           const isLive = !jobFinished && (currentStatus.toLowerCase().includes("going") || currentStatus.toLowerCase().includes("progress"));
                           return (
                             <tr key={idx} style={{ borderBottom: `1px solid #f0f0f0` }}>
                               <td style={{ padding: "12px", fontSize: 12, color: C.muted, fontFamily: "'DM Mono',monospace" }}>{idx + 1}</td>
                               <td style={{ padding: "12px", fontSize: 13, fontWeight: 600, color: C.text }}>{m.machine_name || m.machineName || "N/A"}</td>
                               <td style={{ padding: "12px", fontSize: 13, color: C.text }}>{m.operator_name || m.operatorName || "Pending"}</td>
-                              <td style={{ padding: "12px", fontSize: 13, color: C.muted }}>{m.process_name || m.processName || "General"}</td>
+                              <td style={{ padding: "12px", fontSize: 13, color: C.muted }}>{processName}</td>
                               <td style={{ padding: "12px" }}>
-                                <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: isLive ? "#f59e0b" : C.completed, padding: "3px 10px", borderRadius: 6, background: isLive ? "#fffbeb" : "#f0fdf4" }}>
+                                <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: currentStatusId === 3 ? C.completed : currentStatusId === 2 || isLive ? C.inprog : C.muted, padding: "3px 10px", borderRadius: 6, background: currentStatusId === 3 ? "#f0fdf4" : currentStatusId === 2 || isLive ? "#e8f2fc" : "#f8faf9" }}>
                                   {isLive && (
                                     <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#f59e0b", animation: "pulse 1.5s infinite" }} />
                                   )}
